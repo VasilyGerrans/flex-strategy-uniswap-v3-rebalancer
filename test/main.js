@@ -121,6 +121,11 @@ describe("FLEXUniswapV3", function () {
   it("burns all", async () => {
     await flex.burnAll(deployer.address);
 
+    const positionID = await flex.getPositionID();
+    const position = await pool.positions(positionID);
+
+    console.log(position);
+
     await logBalances(deployer.address, [dai, weth]);
     await logBalances(flex.address, [dai, weth]);
   });

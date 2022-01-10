@@ -41,8 +41,8 @@ contract FLEXUniswapV3 is
 
         // these variables can be udpated by the manager
         (lowerTick, upperTick) = _getSpreadTicks();
-        slippageBPS = 500; // default: 5% slippage
-        slippageInterval = 5 minutes; // default: last five minutes;
+        slippageBPS = 500;                              // default: 5% slippage
+        slippageInterval = 5 minutes;                   // default: last five minutes;
     } 
 
     /// @notice Uniswap V3 callback fn, called back on pool.mint
@@ -344,8 +344,8 @@ contract FLEXUniswapV3 is
     {
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
 
-        _lowerTick = TickMath.getTickAtSqrtRatio(uint160(((sqrtPriceX96 * SQRT_70_PERCENT) / 1e18)));
-        _upperTick = TickMath.getTickAtSqrtRatio(uint160(((sqrtPriceX96 * SQRT_130_PERCENT) / 1e18)));
+        _lowerTick = TickMath.getTickAtSqrtRatio(uint160((sqrtPriceX96 * SQRT_70_PERCENT) / 1e18));
+        _upperTick = TickMath.getTickAtSqrtRatio(uint160((sqrtPriceX96 * SQRT_130_PERCENT) / 1e18));
 
         _lowerTick = _lowerTick % tickSpacing == 0 ? _lowerTick :   // accept valid tickSpacing
             _lowerTick > 0 ?                                        // else, round up to closest valid tickSpacing
