@@ -91,24 +91,21 @@ contract FLEXUniswapV3 is
         uint160 sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(lowerTick);
         uint160 sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(upperTick);
 
-        liquidityMinted = LiquidityAmounts.getLiquidityForAmounts(
-            sqrtRatioX96, 
-            sqrtRatioAX96, 
-            sqrtRatioBX96, 
-            max0In, 
-            max1In
-        );
+        uint128 liquidity0 =
+            LiquidityAmounts.getLiquidityForAmount0(sqrtRatioX96, sqrtRatioBX96, max0In);
+        uint128 liquidity1 =
+            LiquidityAmounts.getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioX96, max1In);
 
-        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
-            sqrtRatioX96,
-            sqrtRatioAX96,
-            sqrtRatioBX96,
-            liquidityMinted
-        );
-
-        // undo rounding down
-        amount0++;
-        amount1++;
+        if (liquidity0 < liquidity1) {
+            amount0 = max0In;
+            amount1 = LiquidityAmounts.getAmount1ForLiquidity(sqrtRatioAX96, sqrtRatioX96, liquidity0) + 1;
+        } else if (liquidity1 < liquidity0) {
+            amount0 = LiquidityAmounts.getAmount0ForLiquidity(sqrtRatioX96, sqrtRatioBX96, liquidity1) + 1;
+            amount1 = max1In;
+        } else {
+            amount0 = max0In;
+            amount1 = max1In;
+        }
 
         // transfer amounts owed to contract
         if (amount0 > 0) {
@@ -118,6 +115,7 @@ contract FLEXUniswapV3 is
             token1.safeTransferFrom(msg.sender, address(this), amount1);
         }
 
+        liquidityMinted = liquidity0 < liquidity1 ? liquidity0 : liquidity1;
         pool.mint(address(this), lowerTick, upperTick, liquidityMinted, "");
     }
 
@@ -343,9 +341,13 @@ contract FLEXUniswapV3 is
         ) 
     {
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+        (uint160 sqrtRatioAX96, uint160 sqrtRatioBX96) = (
+            uint160(FullMath.mulDiv(sqrtPriceX96, SQRT_70_PERCENT, 1e18)),
+            uint160(FullMath.mulDiv(sqrtPriceX96, SQRT_130_PERCENT, 1e18))
+        );
 
-        _lowerTick = TickMath.getTickAtSqrtRatio(uint160((sqrtPriceX96 * SQRT_70_PERCENT) / 1e18));
-        _upperTick = TickMath.getTickAtSqrtRatio(uint160((sqrtPriceX96 * SQRT_130_PERCENT) / 1e18));
+        _lowerTick = TickMath.getTickAtSqrtRatio(sqrtRatioAX96);
+        _upperTick = TickMath.getTickAtSqrtRatio(sqrtRatioBX96);
 
         _lowerTick = _lowerTick % tickSpacing == 0 ? _lowerTick :   // accept valid tickSpacing
             _lowerTick > 0 ?                                        // else, round up to closest valid tickSpacing
