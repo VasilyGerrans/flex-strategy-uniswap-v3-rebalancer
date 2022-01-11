@@ -47,7 +47,7 @@ describe("FLEXUniswapV3", function () {
     ]);
   });
 
-  it("is deploys correctly", async () => {
+  it("deploys correctly", async () => {
     expect(await flex.pool()).to.equal(pool_address);
     expect(await flex.token0()).to.equal(dai_address);
     expect(await flex.token1()).to.equal(weth_address);

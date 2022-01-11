@@ -49,12 +49,18 @@ contract FLEXUniswapV3 is
     function uniswapV3MintCallback(
         uint256 amount0Owed,
         uint256 amount1Owed,
-        bytes calldata /*_data*/
+        bytes calldata _data
     ) external override {
         require(msg.sender == address(pool), "callback caller");
 
-        if (amount0Owed > 0) token0.safeTransfer(msg.sender, amount0Owed);
-        if (amount1Owed > 0) token1.safeTransfer(msg.sender, amount1Owed);
+        if (_data.length == 0) {
+            if (amount0Owed > 0) token0.safeTransfer(msg.sender, amount0Owed);
+            if (amount1Owed > 0) token1.safeTransfer(msg.sender, amount1Owed);
+        } else {
+            (address caller) = abi.decode(_data, (address));
+            if (amount0Owed > 0) token0.safeTransferFrom(caller, msg.sender, amount0Owed);
+            if (amount1Owed > 0) token1.safeTransferFrom(caller, msg.sender, amount1Owed);
+        }
     }
 
     /// @notice Uniswap v3 callback fn, called back on pool.swap
@@ -86,37 +92,20 @@ contract FLEXUniswapV3 is
         )
     {
         require(max0In > 0 && max1In > 0, "mint 0");
+        require(
+            token0.allowance(msg.sender, address(this)) >= max0In && 
+            token1.allowance(msg.sender, address(this)) >= max1In, 
+            "allowance"
+        );
 
         (uint160 sqrtRatioX96,,,,,,) = pool.slot0();
         uint160 sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(lowerTick);
         uint160 sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(upperTick);
 
-        uint128 liquidity0 =
-            LiquidityAmounts.getLiquidityForAmount0(sqrtRatioX96, sqrtRatioBX96, max0In);
-        uint128 liquidity1 =
-            LiquidityAmounts.getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioX96, max1In);
-
-        if (liquidity0 < liquidity1) {
-            amount0 = max0In;
-            amount1 = LiquidityAmounts.getAmount1ForLiquidity(sqrtRatioAX96, sqrtRatioX96, liquidity0) + 1;
-        } else if (liquidity1 < liquidity0) {
-            amount0 = LiquidityAmounts.getAmount0ForLiquidity(sqrtRatioX96, sqrtRatioBX96, liquidity1) + 1;
-            amount1 = max1In;
-        } else {
-            amount0 = max0In;
-            amount1 = max1In;
-        }
-
-        // transfer amounts owed to contract
-        if (amount0 > 0) {
-            token0.safeTransferFrom(msg.sender, address(this), amount0);
-        }
-        if (amount1 > 0) {
-            token1.safeTransferFrom(msg.sender, address(this), amount1);
-        }
-
-        liquidityMinted = liquidity0 < liquidity1 ? liquidity0 : liquidity1;
-        pool.mint(address(this), lowerTick, upperTick, liquidityMinted, "");
+        liquidityMinted = LiquidityAmounts.getLiquidityForAmounts(sqrtRatioX96, sqrtRatioAX96, sqrtRatioBX96, max0In, max1In);
+        
+        (amount0, amount1) = 
+            pool.mint(address(this), lowerTick, upperTick, liquidityMinted, abi.encode(msg.sender));
     }
 
     /// @notice burn liquidity in current position and receive tokens
@@ -404,45 +393,43 @@ contract FLEXUniswapV3 is
         uint256 swapAmountBPS,
         bool zeroForOne
     ) private {
-        if (swapAmountBPS > 0) {
-            (uint160 sqrtRatioX96,,,,,,) = pool.slot0();
-            // First, deposit as much as we can
-            uint128 baseLiquidity =
-                LiquidityAmounts.getLiquidityForAmounts(
-                    sqrtRatioX96,
-                    TickMath.getSqrtRatioAtTick(lowerTick_),
-                    TickMath.getSqrtRatioAtTick(upperTick_),
-                    amount0,
-                    amount1
-                );
-            if (baseLiquidity > 0) {
-                (uint256 amountDeposited0, uint256 amountDeposited1) =
-                    pool.mint(
-                        address(this),
-                        lowerTick_,
-                        upperTick_,
-                        baseLiquidity,
-                        ""
-                    );
-
-                amount0 -= amountDeposited0;
-                amount1 -= amountDeposited1;
-            }
-            int256 swapAmount =
-                SafeCast.toInt256(
-                    ((zeroForOne ? amount0 : amount1) * swapAmountBPS) / 10000
-                );
-            if (swapAmount > 0) {
-                _swapAndDeposit(
+        (uint160 sqrtRatioX96,,,,,,) = pool.slot0();
+        // First, deposit as much as we can
+        uint128 baseLiquidity =
+            LiquidityAmounts.getLiquidityForAmounts(
+                sqrtRatioX96,
+                TickMath.getSqrtRatioAtTick(lowerTick_),
+                TickMath.getSqrtRatioAtTick(upperTick_),
+                amount0,
+                amount1
+            );
+        if (baseLiquidity > 0) {
+            (uint256 amountDeposited0, uint256 amountDeposited1) =
+                pool.mint(
+                    address(this),
                     lowerTick_,
                     upperTick_,
-                    amount0,
-                    amount1,
-                    swapAmount,
-                    swapThresholdPrice,
-                    zeroForOne
+                    baseLiquidity,
+                    ""
                 );
-            }
+
+            amount0 -= amountDeposited0;
+            amount1 -= amountDeposited1;
+        }
+        int256 swapAmount =
+            SafeCast.toInt256(
+                ((zeroForOne ? amount0 : amount1) * swapAmountBPS) / 10000
+            );
+        if (swapAmount > 0) {
+            _swapAndDeposit(
+                lowerTick_,
+                upperTick_,
+                amount0,
+                amount1,
+                swapAmount,
+                swapThresholdPrice,
+                zeroForOne
+            );
         }
     }
 
